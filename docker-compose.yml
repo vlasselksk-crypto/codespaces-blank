@@ -1,0 +1,9 @@
+version: "3.9"
+
+services:
+  slothac-api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - SLOTHAC_API_KEY=test-key

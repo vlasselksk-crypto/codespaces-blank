@@ -1,0 +1,7 @@
+fastapi==0.135.1
+uvicorn[standard]==0.24.0
+flatbuffers==25.12.19
+python-multipart==0.0.6
+pydantic==2.8.0
+pytest==8.4.2
+httpx==0.28.1
