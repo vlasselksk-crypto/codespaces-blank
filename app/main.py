@@ -10,7 +10,12 @@ from fastapi.responses import JSONResponse
 import pandas as pd
 import joblib
 import numpy as np
-from sklearn.ensemble import RandomForestClassifier
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import Dataset, DataLoader
+from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import train_test_split
 
 from app.config import get_api_key
 from app.flatbuffers.parser import parse_tickdata_sequence
@@ -23,25 +28,61 @@ logging.basicConfig(
 )
 
 
-# Global model variable
+# Global model and scaler variables
 model = None
+scaler = None
+
+
+class AimLSTM(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.lstm1 = nn.LSTM(8, 128, batch_first=True)
+        self.dropout1 = nn.Dropout(0.3)
+        self.lstm2 = nn.LSTM(128, 64, batch_first=True)
+        self.dropout2 = nn.Dropout(0.3)
+        self.fc = nn.Linear(64, 1)
+        self.sigmoid = nn.Sigmoid()
+        
+    def forward(self, x):
+        x, _ = self.lstm1(x)
+        x = self.dropout1(x)
+        x, _ = self.lstm2(x)
+        x = self.dropout2(x)
+        x = self.fc(x[:, -1, :])
+        return self.sigmoid(x)
+
+
+class AimDataset(Dataset):
+    def __init__(self, sequences, labels):
+        self.sequences = torch.FloatTensor(sequences)
+        self.labels = torch.FloatTensor(labels)
+        
+    def __len__(self):
+        return len(self.labels)
+        
+    def __getitem__(self, idx):
+        return self.sequences[idx], self.labels[idx]
 
 
 def load_model():
-    global model
-    if os.path.exists("model.pkl"):
+    global model, scaler
+    if os.path.exists("model.pth") and os.path.exists("scaler.pkl"):
         try:
-            model = joblib.load("model.pkl")
-            logger.info("Model loaded from model.pkl")
+            model = AimLSTM()
+            model.load_state_dict(torch.load("model.pth"))
+            model.eval()
+            scaler = joblib.load("scaler.pkl")
+            logger.info("Model and scaler loaded from model.pth and scaler.pkl")
         except Exception as e:
-            logger.error(f"Failed to load model: {e}")
+            logger.error(f"Failed to load model/scaler: {e}")
             model = None
+            scaler = None
     else:
-        logger.info("No model.pkl found, using default behavior")
+        logger.info("No model.pth or scaler.pkl found, using default behavior")
 
 
 def create_app() -> FastAPI:
-    global model
+    global model, scaler
     load_model()  # Load model on startup
 
     app = FastAPI(title="SlothAC API")
@@ -85,17 +126,15 @@ def create_app() -> FastAPI:
                 detail="Invalid FlatBuffers payload",
             )
 
-        if model is not None:
-            # Extract features: mean and std for f0,f1,f2,f3 (assuming delta_yaw, delta_pitch, accel_yaw, accel_pitch)
+        if model is not None and scaler is not None:
             if ticks:
                 data = np.array(ticks)  # shape: (n_ticks, 8)
-                features = [
-                    np.mean(data[:, 0]), np.std(data[:, 0]),  # f0: delta_yaw
-                    np.mean(data[:, 1]), np.std(data[:, 1]),  # f1: delta_pitch
-                    np.mean(data[:, 2]), np.std(data[:, 2]),  # f2: accel_yaw
-                    np.mean(data[:, 3]), np.std(data[:, 3]),  # f3: accel_pitch
-                ]
-                probability = model.predict_proba([features])[0][1]  # Probability of class 1 (cheat)
+                # Normalize data
+                data_normalized = scaler.transform(data)
+                # Convert to tensor, add batch dim
+                seq = torch.FloatTensor(data_normalized).unsqueeze(0)  # shape: (1, n_ticks, 8)
+                with torch.no_grad():
+                    probability = model(seq).item()
             else:
                 probability = 0.1
         else:
@@ -109,17 +148,18 @@ def create_app() -> FastAPI:
             },
         )
 
-    @app.post("/train")
-    async def train_model_endpoint(
+    @app.post("/train-lstm")
+    async def train_lstm_endpoint(
         files: list[UploadFile] = File(...),
         x_api_key: str = Header(..., alias="X-API-Key"),
         api_key: str = Depends(get_api_key),
     ):
-        global model
+        global model, scaler
         if x_api_key != api_key:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid API key")
 
-        X, y = [], []
+        all_sequences = []
+        all_labels = []
 
         for file in files:
             content = await file.read()
@@ -133,28 +173,104 @@ def create_app() -> FastAPI:
             else:
                 continue
 
-            # Extract features from entire file
-            features = [
-                df['delta_yaw'].mean(), df['delta_yaw'].std(),
-                df['delta_pitch'].mean(), df['delta_pitch'].std(),
-                df['accel_yaw'].mean(), df['accel_yaw'].std(),
-                df['accel_pitch'].mean(), df['accel_pitch'].std()
-            ]
-            X.append(features)
-            y.append(label)
+            # Extract data: assume columns delta_yaw, delta_pitch, accel_yaw, accel_pitch, and 4 more? Wait, FlatBuffers has 8 floats.
+            # For simplicity, assume df has 8 columns: f0 to f7
+            data = df.values  # shape: (n_ticks, 8)
 
-        if not X:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No valid training files provided")
+            # Create sequences: window 40, step 20
+            window_size = 40
+            step = 20
+            for i in range(0, len(data) - window_size + 1, step):
+                seq = data[i:i+window_size]
+                all_sequences.append(seq)
+                all_labels.append(label)
 
-        # Train model
-        model = RandomForestClassifier(random_state=42)
-        model.fit(X, y)
+        if not all_sequences:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No valid training sequences created")
 
-        # Save model
-        joblib.dump(model, 'model.pkl')
-        logger.info(f"Model trained and saved with {len(X)} samples")
+        # Fit scaler on all data
+        all_data_flat = np.array(all_sequences).reshape(-1, 8)
+        scaler = StandardScaler()
+        scaler.fit(all_data_flat)
 
-        return {"status": "trained", "samples": len(X)}
+        # Normalize sequences
+        sequences_normalized = []
+        for seq in all_sequences:
+            seq_norm = scaler.transform(seq)
+            sequences_normalized.append(seq_norm)
+
+        # Split train/val
+        X_train, X_val, y_train, y_val = train_test_split(sequences_normalized, all_labels, test_size=0.2, random_state=42, stratify=all_labels)
+
+        # Create datasets and dataloaders
+        train_dataset = AimDataset(X_train, y_train)
+        val_dataset = AimDataset(X_val, y_val)
+        train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
+        val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False)
+
+        # Model, optimizer, loss
+        model = AimLSTM()
+        optimizer = optim.Adam(model.parameters(), lr=0.001)
+        criterion = nn.BCELoss()
+
+        # Training
+        num_epochs = 10
+        patience = 5
+        best_loss = float('inf')
+        patience_counter = 0
+        train_losses = []
+        val_losses = []
+
+        for epoch in range(num_epochs):
+            model.train()
+            epoch_train_loss = 0
+            for seqs, labels in train_loader:
+                optimizer.zero_grad()
+                outputs = model(seqs)
+                loss = criterion(outputs.squeeze(), labels)
+                loss.backward()
+                optimizer.step()
+                epoch_train_loss += loss.item()
+            train_losses.append(epoch_train_loss / len(train_loader))
+
+            # Validation
+            model.eval()
+            epoch_val_loss = 0
+            with torch.no_grad():
+                for seqs, labels in val_loader:
+                    outputs = model(seqs)
+                    loss = criterion(outputs.squeeze(), labels)
+                    epoch_val_loss += loss.item()
+            val_losses.append(epoch_val_loss / len(val_loader))
+
+            logger.info(f"Epoch {epoch+1}/{num_epochs}, Train Loss: {train_losses[-1]:.4f}, Val Loss: {val_losses[-1]:.4f}")
+
+            # Early stopping
+            if val_losses[-1] < best_loss:
+                best_loss = val_losses[-1]
+                patience_counter = 0
+                torch.save(model.state_dict(), "model.pth")
+                joblib.dump(scaler, "scaler.pkl")
+            else:
+                patience_counter += 1
+                if patience_counter >= patience:
+                    logger.info("Early stopping")
+                    break
+
+        # Save final if not saved
+        if patience_counter == 0:
+            torch.save(model.state_dict(), "model.pth")
+            joblib.dump(scaler, "scaler.pkl")
+
+        logger.info(f"LSTM model trained and saved with {len(all_sequences)} sequences")
+
+        return {
+            "status": "trained",
+            "sequences": len(all_sequences),
+            "epochs_trained": len(train_losses),
+            "train_losses": train_losses,
+            "val_losses": val_losses
+        }
 
     return app
 

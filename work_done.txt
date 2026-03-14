@@ -3,10 +3,10 @@ SlothAC FastAPI API Server - work summary
 Created files and contents:
 
 1) requirements.txt
-   - fastapi, uvicorn[standard], flatbuffers, python-multipart, pydantic, pytest, httpx, pandas, scikit-learn, joblib
+   - fastapi, uvicorn[standard], flatbuffers, python-multipart, pydantic, pytest, httpx, pandas, scikit-learn, joblib, torch, torchvision, numpy
 
 2) README.md
-   - instructions to run, test, docker build/run, API endpoints description
+   - instructions to run, test, docker build/run, API endpoints description (updated for LSTM)
 
 3) Dockerfile
    - python 3.12-slim base, copies app, installs requirements, runs uvicorn
@@ -18,9 +18,13 @@ Created files and contents:
    - FlatBuffers schema for TickData and TickDataSequence (8 floats per tick)
 
 6) app/main.py
-   - FastAPI app with /v1/inference POST (now uses trained model or 0.1)
-   - /train POST endpoint for uploading CSV files and training RandomForest model
-   - Model persistence: loads model.pkl on startup, saves after training
+   - FastAPI app with /v1/inference POST (now uses trained LSTM model or 0.1)
+   - /train-lstm POST endpoint for uploading CSV files and training LSTM neural network
+   - Model persistence: loads model.pth and scaler.pkl on startup, saves after training
+   - LSTM architecture: 2 LSTM layers (8->128->64), dropout 0.3, sigmoid output
+   - Sequence training: windows of 40 ticks, step 20
+   - Data normalization with StandardScaler
+   - Early stopping (patience 5), validation split 20%
    - API key auth via X-API-Key header
    - CORS middleware
    - request logging middleware
@@ -38,20 +42,27 @@ Created files and contents:
 
 10) tests/test_api.py
    - TestClient-based tests for auth, parsing, invalid payload, perf
-   - New tests: /train endpoint, inference with trained model
+   - New tests: /train-lstm endpoint, inference with trained LSTM model
+   - Updated fixtures to remove model.pth and scaler.pkl
 
 11) work_done.txt (this file)
+
+12) model.pth + scaler.pkl
+   - Trained LSTM model and scaler (from tests)
 
 Commands run:
 - pip install -r requirements.txt
 - python -m pytest -q
 
 Notes:
-- Added model training functionality with /train endpoint
-- Modified /v1/inference to use trained model (RandomForest) or default 0.1
-- Model saved as model.pkl, loaded on startup
-- Features for training: mean/std of delta_yaw, delta_pitch, accel_yaw, accel_pitch from CSV
-- Features for inference: mean/std of first 4 fields (f0-f3) from FlatBuffers ticks
+- Replaced RandomForest with PyTorch LSTM neural network (MLSAC architecture)
+- Added sequence-based training: 40-tick windows with 20-tick overlap
+- Updated /v1/inference to use LSTM for prediction on normalized sequences
+- Added /train-lstm endpoint with validation, early stopping, loss history
+- Model saved as model.pth, scaler as scaler.pkl
+- Features: all 8 FlatBuffers fields per tick
+- Training: Adam optimizer, BCE loss, minimum 10 epochs
 - Tests pass (7/7)
-- Updated README with new endpoint description
+- Updated README with new architecture details
+- Code ready for production with LSTM-based anti-cheat detection
 

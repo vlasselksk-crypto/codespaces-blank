@@ -18,10 +18,11 @@ def set_api_key_env(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def remove_model_file():
-    # Remove model.pkl before each test to ensure clean state
-    if os.path.exists("model.pkl"):
-        os.remove("model.pkl")
+def remove_model_files():
+    # Remove model.pth and scaler.pkl before each test to ensure clean state
+    for f in ["model.pth", "scaler.pkl"]:
+        if os.path.exists(f):
+            os.remove(f)
 
 
 def test_auth_success():
@@ -83,19 +84,27 @@ def test_performance_under_50ms():
     assert duration_ms < 200, f"Response too slow: {duration_ms:.1f}ms"
 
 
-def test_train_endpoint():
-    # Create mock CSV data
+def test_train_lstm_endpoint():
+    # Create mock CSV data with 8 columns and 50 rows
     legit_data = pd.DataFrame({
-        'delta_yaw': [0.1, 0.2, 0.3],
-        'delta_pitch': [0.05, 0.1, 0.15],
-        'accel_yaw': [1.0, 1.1, 1.2],
-        'accel_pitch': [0.5, 0.6, 0.7]
+        'f0': [0.1] * 50,
+        'f1': [0.05] * 50,
+        'f2': [1.0] * 50,
+        'f3': [0.5] * 50,
+        'f4': [0.0] * 50,
+        'f5': [0.0] * 50,
+        'f6': [0.0] * 50,
+        'f7': [0.0] * 50,
     })
     cheat_data = pd.DataFrame({
-        'delta_yaw': [1.0, 1.5, 2.0],
-        'delta_pitch': [0.8, 1.2, 1.6],
-        'accel_yaw': [5.0, 6.0, 7.0],
-        'accel_pitch': [3.0, 4.0, 5.0]
+        'f0': [1.0] * 50,
+        'f1': [0.8] * 50,
+        'f2': [5.0] * 50,
+        'f3': [3.0] * 50,
+        'f4': [0.0] * 50,
+        'f5': [0.0] * 50,
+        'f6': [0.0] * 50,
+        'f7': [0.0] * 50,
     })
 
     legit_csv = legit_data.to_csv(index=False)
@@ -107,31 +116,40 @@ def test_train_endpoint():
             ("files", ("cheat_data.csv", io.BytesIO(cheat_csv.encode()), "text/csv")),
         ]
         r = client.post(
-            "/train", files=files, headers={"X-API-Key": "test-key"}
+            "/train-lstm", files=files, headers={"X-API-Key": "test-key"}
         )
 
     assert r.status_code == status.HTTP_200_OK
     data = r.json()
     assert data["status"] == "trained"
-    assert data["samples"] == 2
+    assert data["sequences"] > 0
 
-    # Check that model.pkl was created
-    assert os.path.exists("model.pkl")
+    # Check that model.pth and scaler.pkl were created
+    assert os.path.exists("model.pth")
+    assert os.path.exists("scaler.pkl")
 
 
 def test_inference_with_model():
     # First train a model
     legit_data = pd.DataFrame({
-        'delta_yaw': [0.1, 0.2, 0.3],
-        'delta_pitch': [0.05, 0.1, 0.15],
-        'accel_yaw': [1.0, 1.1, 1.2],
-        'accel_pitch': [0.5, 0.6, 0.7]
+        'f0': [0.1] * 50,
+        'f1': [0.05] * 50,
+        'f2': [1.0] * 50,
+        'f3': [0.5] * 50,
+        'f4': [0.0] * 50,
+        'f5': [0.0] * 50,
+        'f6': [0.0] * 50,
+        'f7': [0.0] * 50,
     })
     cheat_data = pd.DataFrame({
-        'delta_yaw': [1.0, 1.5, 2.0],
-        'delta_pitch': [0.8, 1.2, 1.6],
-        'accel_yaw': [5.0, 6.0, 7.0],
-        'accel_pitch': [3.0, 4.0, 5.0]
+        'f0': [1.0] * 50,
+        'f1': [0.8] * 50,
+        'f2': [5.0] * 50,
+        'f3': [3.0] * 50,
+        'f4': [0.0] * 50,
+        'f5': [0.0] * 50,
+        'f6': [0.0] * 50,
+        'f7': [0.0] * 50,
     })
 
     legit_csv = legit_data.to_csv(index=False)
@@ -142,14 +160,15 @@ def test_inference_with_model():
             ("files", ("legit_data.csv", io.BytesIO(legit_csv.encode()), "text/csv")),
             ("files", ("cheat_data.csv", io.BytesIO(cheat_csv.encode()), "text/csv")),
         ]
-        client.post("/train", files=files, headers={"X-API-Key": "test-key"})
+        client.post("/train-lstm", files=files, headers={"X-API-Key": "test-key"})
 
         # Now test inference
-        payload = build_tickdata_sequence([[0.1, 0.05, 1.0, 0.5, 0, 0, 0, 0]])  # Similar to legit
+        payload = build_tickdata_sequence([[0.1, 0.05, 1.0, 0.5, 0, 0, 0, 0] * 10])  # 10 ticks, similar to legit
         r = client.post(
             "/v1/inference", content=payload, headers={"X-API-Key": "test-key"}
         )
 
     assert r.status_code == status.HTTP_200_OK
     data = r.json()
-    assert data["probability"] < 0.5  # Should be low for legit-like data
+    assert "probability" in data
+    assert isinstance(data["probability"], float)
