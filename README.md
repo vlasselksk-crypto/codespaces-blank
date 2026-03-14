@@ -1,11 +1,13 @@
 # SlothAC API Server (FastAPI)
 
-A small FastAPI service for a fake anti-cheat inference endpoint (`/v1/inference`) that accepts FlatBuffers-encoded TickData.
+A small FastAPI service for a fake anti-cheat inference endpoint (`/v1/inference`) that accepts FlatBuffers-encoded TickData, with on-server model training via `/train`.
 
 ## Features
 
 - **FlatBuffers request parsing** (TickData / TickDataSequence structures)
 - **API key authentication** via `X-API-Key` header
+- **On-server model training** via `/train` endpoint (accepts CSV files)
+- **Model persistence** (saves/loads `model.pkl`)
 - **CORS enabled**
 - **Logging** for all requests
 - **Production-ready error handling**
@@ -31,7 +33,20 @@ The server expects a valid API key in the `X-API-Key` header.
 
 By default, the server uses the API key from `SLOTHAC_API_KEY` in the environment. If unset, it defaults to `test-key`.
 
-### 3) Run tests
+### 3) Train a model (optional)
+
+Upload CSV files with columns: `delta_yaw`, `delta_pitch`, `accel_yaw`, `accel_pitch`.
+
+Filename must contain "LEGIT" or "CHEAT" to label the data.
+
+```bash
+curl -X POST "http://localhost:8000/train" \
+  -H "X-API-Key: test-key" \
+  -F "files=@legit_data.csv" \
+  -F "files=@cheat_data.csv"
+```
+
+### 4) Run tests
 
 ```bash
 pytest
@@ -66,3 +81,23 @@ docker-compose up --build
 The FlatBuffers schema is located at `app/flatbuffers/schema/tickdata.fbs`.
 
 The endpoint expects the request body to be FlatBuffers-encoded `TickDataSequence`.
+
+For inference, features are extracted as mean/std of the first 4 fields (f0-f3) per tick sequence.
+
+---
+
+## API Endpoints
+
+### POST `/v1/inference`
+
+- **Auth**: `X-API-Key` header
+- **Body**: FlatBuffers `TickDataSequence`
+- **Response**: `{"probability": float, "ticks_received": int}`
+- **Logic**: If model exists, predicts cheat probability; else returns 0.1
+
+### POST `/train`
+
+- **Auth**: `X-API-Key` header
+- **Body**: Multipart form-data with `files` (CSV files)
+- **Response**: `{"status": "trained", "samples": int}`
+- **Logic**: Trains RandomForest on CSV data, saves to `model.pkl`

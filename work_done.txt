@@ -3,10 +3,10 @@ SlothAC FastAPI API Server - work summary
 Created files and contents:
 
 1) requirements.txt
-   - fastapi, uvicorn[standard], flatbuffers, python-multipart, pydantic, pytest, httpx
+   - fastapi, uvicorn[standard], flatbuffers, python-multipart, pydantic, pytest, httpx, pandas, scikit-learn, joblib
 
 2) README.md
-   - instructions to run, test, docker build/run, etc.
+   - instructions to run, test, docker build/run, API endpoints description
 
 3) Dockerfile
    - python 3.12-slim base, copies app, installs requirements, runs uvicorn
@@ -18,12 +18,13 @@ Created files and contents:
    - FlatBuffers schema for TickData and TickDataSequence (8 floats per tick)
 
 6) app/main.py
-   - FastAPI app with /v1/inference POST
+   - FastAPI app with /v1/inference POST (now uses trained model or 0.1)
+   - /train POST endpoint for uploading CSV files and training RandomForest model
+   - Model persistence: loads model.pkl on startup, saves after training
    - API key auth via X-API-Key header
    - CORS middleware
    - request logging middleware
    - FlatBuffers parsing + error handling
-   - dummy model returning random probability
 
 7) app/config.py
    - get_api_key() reads SLOTHAC_API_KEY or defaults to test-key
@@ -37,6 +38,7 @@ Created files and contents:
 
 10) tests/test_api.py
    - TestClient-based tests for auth, parsing, invalid payload, perf
+   - New tests: /train endpoint, inference with trained model
 
 11) work_done.txt (this file)
 
@@ -45,5 +47,11 @@ Commands run:
 - python -m pytest -q
 
 Notes:
-- Fixed flatbuffers runtime compatibility by updating generated code.
-- Tests pass (5/5).
+- Added model training functionality with /train endpoint
+- Modified /v1/inference to use trained model (RandomForest) or default 0.1
+- Model saved as model.pkl, loaded on startup
+- Features for training: mean/std of delta_yaw, delta_pitch, accel_yaw, accel_pitch from CSV
+- Features for inference: mean/std of first 4 fields (f0-f3) from FlatBuffers ticks
+- Tests pass (7/7)
+- Updated README with new endpoint description
+
