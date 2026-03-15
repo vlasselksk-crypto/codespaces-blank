@@ -9,7 +9,7 @@ Created files and contents:
    - instructions to run, test, docker build/run, API endpoints description (updated for LSTM)
 
 3) Dockerfile
-   - python 3.12-slim base, copies app, installs requirements, runs uvicorn
+   - python 3.12-slim base, installs requirements, copies full project into /app, runs uvicorn
 
 4) docker-compose.yml
    - service definition for slothac-api with port 8000 and env key
@@ -53,6 +53,9 @@ Created files and contents:
 Commands run:
 - pip install -r requirements.txt
 - python -m pytest -q
+- git add .
+- git commit -m "..."
+- git push origin main
 
 Notes:
 - Replaced RandomForest with PyTorch LSTM neural network (MLSAC architecture)
@@ -64,5 +67,6 @@ Notes:
 - Training: Adam optimizer, BCE loss, minimum 10 epochs
 - Tests pass (7/7)
 - Updated README with new architecture details
-- Code ready for production with LSTM-based anti-cheat detection
+- Code pushed to GitHub repository: https://github.com/vlasselksk-crypto/codespaces-blank
+- Latest commit: 8447179
 

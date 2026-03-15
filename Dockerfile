@@ -5,11 +5,11 @@ FROM python:3.12-slim
 WORKDIR /app
 
 # Install runtime dependencies
-COPY requirements.txt ./
-RUN python -m pip install --no-cache-dir -r requirements.txt
+COPY requirements.txt /app/requirements.txt
+RUN python -m pip install --no-cache-dir -r /app/requirements.txt
 
-# Copy source
-COPY app ./app
+# Copy source code
+COPY . /app
 
 # Default env
 ENV SLOTHAC_API_KEY=test-key
