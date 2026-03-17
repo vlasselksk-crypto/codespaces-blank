@@ -177,9 +177,9 @@ def create_app() -> FastAPI:
             else:
                 continue
 
-            # Extract data: assume columns delta_yaw, delta_pitch, accel_yaw, accel_pitch, and 4 more? Wait, FlatBuffers has 8 floats.
-            # For simplicity, assume df has 8 columns: f0 to f7
-            data = df.values  # shape: (n_ticks, 8)
+            # Extract data: assume columns is_cheating, delta_yaw, delta_pitch, accel_yaw, accel_pitch, and 4 more? Wait, FlatBuffers has 8 floats.
+            # For simplicity, assume df has 9 columns: is_cheating, f0 to f7
+            data = df.iloc[:, 1:].values  # shape: (n_ticks, 8) - skip is_cheating column
 
             # Create sequences: window 40, step 20
             window_size = 40
