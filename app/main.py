@@ -290,7 +290,7 @@ def create_app() -> FastAPI:
                     files.append(("files", (os.path.basename(file_path), open(file_path, "rb"), "text/csv")))
 
                 response = requests.post(
-                    "http://localhost:10000/train-lstm",
+                    "http://localhost:8000/train-lstm",
                     headers={"X-API-Key": get_api_key()},
                     files=files,
                     timeout=300,  # 5 минут на обучение
