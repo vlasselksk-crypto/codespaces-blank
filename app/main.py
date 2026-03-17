@@ -197,6 +197,9 @@ def create_app() -> FastAPI:
         scaler = StandardScaler()
         scaler.fit(all_data_flat)
 
+        if scaler is None:
+            raise HTTPException(status_code=500, detail="Scaler failed to fit")
+
         # Normalize sequences
         sequences_normalized = []
         for seq in all_sequences:
