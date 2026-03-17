@@ -2,6 +2,10 @@ import logging
 import random
 import io
 import os
+import threading
+import glob
+
+import requests
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, status, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
@@ -271,6 +275,44 @@ def create_app() -> FastAPI:
             "train_losses": train_losses,
             "val_losses": val_losses
         }
+
+    def auto_train_on_startup():
+        try:
+            csv_files = glob.glob("ru_data/*.csv")
+            if not csv_files:
+                logger.info("No CSV files found in ru_data/, skipping auto-training.")
+                return
+
+            logger.info(f"🚀 Found {len(csv_files)} CSV files. Starting training...")
+            files = []
+            try:
+                for file_path in csv_files:
+                    files.append(("files", (os.path.basename(file_path), open(file_path, "rb"), "text/csv")))
+
+                response = requests.post(
+                    "http://localhost:10000/train-lstm",
+                    headers={"X-API-Key": get_api_key()},
+                    files=files,
+                    timeout=300,  # 5 минут на обучение
+                )
+
+                if response.status_code == 200:
+                    logger.info("✅ Model successfully trained on startup!")
+                    logger.info(f"📊 Result: {response.json()}")
+                else:
+                    logger.error(f"❌ Training failed: {response.status_code} - {response.text}")
+            except Exception as e:
+                logger.error(f"❌ Auto-training error: {e}")
+            finally:
+                for _, file_tuple in files:
+                    try:
+                        file_tuple[1].close()
+                    except Exception:
+                        pass
+        except Exception as e:
+            logger.error(f"❌ Auto-training error: {e}")
+
+    threading.Thread(target=auto_train_on_startup, daemon=True).start()
 
     return app
 
