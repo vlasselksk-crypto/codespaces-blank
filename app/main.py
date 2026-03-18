@@ -315,7 +315,7 @@ def create_app() -> FastAPI:
         except Exception as e:
             logger.error(f"❌ Auto-training error: {e}")
 
-    threading.Thread(target=auto_train_on_startup, daemon=True).start()
+    # threading.Thread(target=auto_train_on_startup, daemon=True).start()
 
     return app
 
