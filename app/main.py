@@ -2,6 +2,7 @@ import logging
 import random
 import io
 import os
+import time
 import threading
 import glob
 
@@ -315,7 +316,59 @@ def create_app() -> FastAPI:
         except Exception as e:
             logger.error(f"❌ Auto-training error: {e}")
 
-    # threading.Thread(target=auto_train_on_startup, daemon=True).start()
+    def train_on_startup_loop():
+        """Запускает обучение при каждом старте сервера, пока модель не будет готова."""
+        max_attempts = 3
+        attempt = 0
+        while attempt < max_attempts:
+            if os.path.exists("model.pth") and os.path.exists("scaler.pkl"):
+                logger.info("✅ Model already trained and ready")
+                return
+            
+            attempt += 1
+            logger.info(f"🚀 Starting training attempt {attempt}/{max_attempts}...")
+            
+            try:
+                csv_files = glob.glob("ru_data/*.csv")
+                if not csv_files:
+                    logger.warning("No CSV files found in ru_data/")
+                    return
+                
+                files = []
+                for file_path in csv_files:
+                    files.append(("files", (os.path.basename(file_path), open(file_path, "rb"), "text/csv")))
+                
+                response = requests.post(
+                    "http://localhost:8000/train-lstm",
+                    headers={"X-API-Key": get_api_key()},
+                    files=files,
+                    timeout=600,  # 10 минут на обучение
+                )
+                
+                for _, file_tuple in files:
+                    try:
+                        file_tuple[1].close()
+                    except Exception:
+                        pass
+                
+                if response.status_code == 200:
+                    logger.info("✅ Model successfully trained!")
+                    logger.info(f"📊 Result: {response.json()}")
+                    return
+                else:
+                    logger.error(f"❌ Training attempt {attempt} failed: {response.status_code}")
+                    if attempt < max_attempts:
+                        logger.info(f"Retrying in 10 seconds...")
+                        import time
+                        time.sleep(10)
+            except Exception as e:
+                logger.error(f"❌ Training attempt {attempt} error: {e}")
+                if attempt < max_attempts:
+                    logger.info(f"Retrying in 10 seconds...")
+                    import time
+                    time.sleep(10)
+
+    threading.Thread(target=train_on_startup_loop, daemon=True).start()
 
     return app
 
