@@ -317,24 +317,29 @@ def create_app() -> FastAPI:
             logger.error(f"❌ Auto-training error: {e}")
 
     def train_on_startup_loop():
-        """Запускает обучение при каждом старте сервера, пока модель не будет готова."""
-        max_attempts = 3
-        attempt = 0
-        while attempt < max_attempts:
-            if os.path.exists("model.pth") and os.path.exists("scaler.pkl"):
-                logger.info("✅ Model already trained and ready")
+        """Проверяет наличие модели при старте и предлагает обучение при появлении новых данных."""
+        try:
+            time.sleep(10)
+            
+            # Получаем список всех CSV
+            csv_files = glob.glob("ru_data/*.csv")
+            if not csv_files:
+                logger.info("No CSV files found, skipping training")
                 return
             
-            attempt += 1
-            logger.info(f"🚀 Starting training attempt {attempt}/{max_attempts}...")
+            # Если модель уже есть — проверяем, все ли файлы уже учтены
+            if os.path.exists("model.pth") and os.path.exists("scaler.pkl"):
+                # Сравниваем количество файлов или используем хеши
+                # Пока просто логируем и предлагаем ручное обучение
+                logger.info(f"✅ Model exists. Found {len(csv_files)} CSV files.")
+                logger.info("ℹ️ To retrain with new data, send POST /train-lstm manually")
+                return
             
+            # Если модели нет — запускаем обучение с нуля
+            logger.info(f"🚀 Starting training with {len(csv_files)} files...")
+            
+            files = []
             try:
-                csv_files = glob.glob("ru_data/*.csv")
-                if not csv_files:
-                    logger.warning("No CSV files found in ru_data/")
-                    return
-                
-                files = []
                 for file_path in csv_files:
                     files.append(("files", (os.path.basename(file_path), open(file_path, "rb"), "text/csv")))
                 
@@ -345,28 +350,20 @@ def create_app() -> FastAPI:
                     timeout=600,  # 10 минут на обучение
                 )
                 
+                if response.status_code == 200:
+                    logger.info("✅ Model successfully trained on startup!")
+                    logger.info(f"📊 Result: {response.json()}")
+                else:
+                    logger.error(f"❌ Training failed: {response.status_code} - {response.text}")
+            finally:
                 for _, file_tuple in files:
                     try:
                         file_tuple[1].close()
                     except Exception:
                         pass
-                
-                if response.status_code == 200:
-                    logger.info("✅ Model successfully trained!")
-                    logger.info(f"📊 Result: {response.json()}")
-                    return
-                else:
-                    logger.error(f"❌ Training attempt {attempt} failed: {response.status_code}")
-                    if attempt < max_attempts:
-                        logger.info(f"Retrying in 10 seconds...")
-                        import time
-                        time.sleep(10)
-            except Exception as e:
-                logger.error(f"❌ Training attempt {attempt} error: {e}")
-                if attempt < max_attempts:
-                    logger.info(f"Retrying in 10 seconds...")
-                    import time
-                    time.sleep(10)
+                        
+        except Exception as e:
+            logger.error(f"❌ Training error: {e}")
 
     threading.Thread(target=train_on_startup_loop, daemon=True).start()
 
