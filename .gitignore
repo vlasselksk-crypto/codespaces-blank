@@ -1,1 +1,10 @@
 /slothac_api.zip
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+*.so
+
+# Virtual environments
+.venv/
+venv/
