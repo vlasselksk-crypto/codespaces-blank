@@ -233,8 +233,19 @@ def create_app() -> FastAPI:
             model.train()
             epoch_train_loss = 0
             for seqs, labels in train_loader:
+                # Защита от пустых батчей
+                if len(seqs) == 0:
+                    logger.warning(f"⚠️ Empty batch, skipping")
+                    continue
+                
                 optimizer.zero_grad()
                 outputs = model(seqs)
+                
+                # Защита от пустых выходов
+                if outputs.dim() == 0:
+                    outputs = outputs.unsqueeze(0)
+                    labels = labels[:1]  # подгоняем размер
+                
                 loss = criterion(outputs.squeeze(), labels)
                 loss.backward()
                 optimizer.step()
@@ -246,7 +257,18 @@ def create_app() -> FastAPI:
             epoch_val_loss = 0
             with torch.no_grad():
                 for seqs, labels in val_loader:
+                    # Защита от пустых батчей в валидации
+                    if len(seqs) == 0:
+                        logger.warning(f"⚠️ Empty validation batch, skipping")
+                        continue
+                    
                     outputs = model(seqs)
+                    
+                    # Защита от пустых выходов
+                    if outputs.dim() == 0:
+                        outputs = outputs.unsqueeze(0)
+                        labels = labels[:1]
+                    
                     loss = criterion(outputs.squeeze(), labels)
                     epoch_val_loss += loss.item()
             val_losses.append(epoch_val_loss / len(val_loader))
