@@ -342,6 +342,14 @@ def create_app() -> FastAPI:
         """Проверяет наличие модели при старте и предлагает обучение при появлении новых данных."""
         try:
             time.sleep(10)
+
+            # Временно удаляем старую модель, чтобы начать обучение с нуля
+            if os.path.exists("model.pth"):
+                os.remove("model.pth")
+                logger.info("🗑️ Old model.pth deleted")
+            if os.path.exists("scaler.pkl"):
+                os.remove("scaler.pkl")
+                logger.info("🗑️ Old scaler.pkl deleted")
             
             # Получаем список всех CSV
             csv_files = glob.glob("ru_data/*.csv")
