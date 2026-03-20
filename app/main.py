@@ -377,7 +377,7 @@ def create_app() -> FastAPI:
                     "http://localhost:8000/train-lstm",
                     headers={"X-API-Key": get_api_key()},
                     files=files,
-                    timeout=600,  # 10 минут на обучение
+                    timeout=900,  # 15 минут на обучение (обновлено)
                 )
                 
                 if response.status_code == 200:
