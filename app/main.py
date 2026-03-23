@@ -5,10 +5,11 @@ import os
 import time
 import threading
 import glob
+import json
 
 import requests
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request, status, UploadFile, File
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, status, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -36,12 +37,13 @@ logging.basicConfig(
 # Global model and scaler variables
 model = None
 scaler = None
+suspicion_cache = {}
 
 
 class AimLSTM(nn.Module):
     def __init__(self):
         super().__init__()
-        self.lstm1 = nn.LSTM(8, 128, batch_first=True)
+        self.lstm1 = nn.LSTM(15, 128, batch_first=True)
         self.dropout1 = nn.Dropout(0.3)
         self.lstm2 = nn.LSTM(128, 64, batch_first=True)
         self.dropout2 = nn.Dropout(0.3)
@@ -67,6 +69,56 @@ class AimDataset(Dataset):
         
     def __getitem__(self, idx):
         return self.sequences[idx], self.labels[idx]
+
+
+def extract_advanced_features(ticks, hits):
+    # ticks: list of [delta_yaw, delta_pitch, accel_yaw, accel_pitch, jerk_yaw, jerk_pitch, gcd_error_yaw, gcd_error_pitch]
+    
+    # variance_yaw: дисперсия delta_yaw за последние 20 тиков
+    if len(ticks) < 20:
+        variance_yaw = 0.0
+    else:
+        deltas_yaw = [t[0] for t in ticks[-20:]]
+        variance_yaw = np.var(deltas_yaw)
+    
+    # variance_pitch
+    if len(ticks) < 20:
+        variance_pitch = 0.0
+    else:
+        deltas_pitch = [t[1] for t in ticks[-20:]]
+        variance_pitch = np.var(deltas_pitch)
+    
+    # hit_frequency: количество ударов за последние 2 секунды (40 тиков)
+    if len(hits) < 40:
+        hit_frequency = sum(hits)
+    else:
+        hit_frequency = sum(hits[-40:])
+    
+    # rotation_speed: среднее |delta_yaw| + |delta_pitch| за тик
+    if not ticks:
+        rotation_speed = 0.0
+    else:
+        rotation_speed = np.mean([abs(t[0]) + abs(t[1]) for t in ticks])
+    
+    # aim_consistency: среднее отклонение от идеального попадания (заглушка 0.0)
+    aim_consistency = 0.0
+    
+    # jitter: среднее отклонение от сглаженного движения
+    if len(ticks) < 3:
+        jitter = 0.0
+    else:
+        deltas = [t[0] for t in ticks]
+        smoothed = np.convolve(deltas, np.ones(3)/3, mode='valid')
+        jitter = np.mean([abs(d - s) for d, s in zip(deltas[1:-1], smoothed)])
+    
+    # mouse_smoothing: корреляция последовательных дельт
+    if len(ticks) < 2:
+        mouse_smoothing = 0.0
+    else:
+        deltas = [t[0] for t in ticks]
+        mouse_smoothing = np.corrcoef(deltas[:-1], deltas[1:])[0,1] if len(deltas) > 1 else 0.0
+    
+    return variance_yaw, variance_pitch, hit_frequency, rotation_speed, aim_consistency, jitter, mouse_smoothing
 
 
 def load_model():
@@ -115,11 +167,18 @@ def create_app() -> FastAPI:
     @app.post("/v1/inference")
     async def inference(
         request: Request,
+        player_id: str = Query(..., description="Player ID for suspicion tracking"),
+        hits: str = Query("[]", description="JSON list of hit history (last 100 ticks)"),
         x_api_key: str = Header(..., alias="X-API-Key"),
         api_key: str = Depends(get_api_key),
     ):
         if x_api_key != api_key:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid API key")
+
+        try:
+            hits_list = json.loads(hits)
+        except:
+            hits_list = []
 
         body = await request.body()
         try:
@@ -134,10 +193,19 @@ def create_app() -> FastAPI:
         if model is not None and scaler is not None:
             if ticks:
                 data = np.array(ticks)  # shape: (n_ticks, 8)
+                
+                # Extract advanced features
+                advanced_features = extract_advanced_features(ticks, hits_list)
+                advanced_array = np.array(advanced_features).reshape(1, -1)  # (1, 7)
+                advanced_tiled = np.tile(advanced_array, (len(data), 1))  # (n_ticks, 7)
+                
+                # Concatenate features
+                data = np.concatenate([data, advanced_tiled], axis=1)  # (n_ticks, 15)
+                
                 # Normalize data
                 data_normalized = scaler.transform(data)
                 # Convert to tensor, add batch dim
-                seq = torch.FloatTensor(data_normalized).unsqueeze(0)  # shape: (1, n_ticks, 8)
+                seq = torch.FloatTensor(data_normalized).unsqueeze(0)  # shape: (1, n_ticks, 15)
                 with torch.no_grad():
                     probability = model(seq).item()
             else:
@@ -145,11 +213,55 @@ def create_app() -> FastAPI:
         else:
             probability = 0.1
 
+        # Hybrid system: rule-based suspicion
+        suspicion = 0
+        if ticks:
+            rotation_speed = advanced_features[3]  # from extract_advanced_features
+            hit_frequency = advanced_features[2]
+            last_hit = hits_list and hits_list[-1] if hits_list else False
+            
+            # Rule 1: слишком быстрый поворот во время удара
+            if rotation_speed > 2000 and last_hit:
+                suspicion += 50
+            
+            # Rule 2: слишком частая атака
+            if hit_frequency > 12:
+                suspicion += 30
+            
+            # Если подозрение > 80 — мгновенный бан
+            if suspicion > 80:
+                return JSONResponse(
+                    status_code=status.HTTP_200_OK,
+                    content={
+                        "probability": 0.99,
+                        "reason": "rule_based",
+                        "ticks_received": len(ticks),
+                    },
+                )
+            
+            # Add rule suspicion to probability
+            probability += suspicion / 100.0
+            probability = min(probability, 0.99)
+
+        # Suspicion accumulation
+        if player_id not in suspicion_cache:
+            suspicion_cache[player_id] = 0.0
+        
+        weight = 3.0 if hits_list and hits_list[-1] else 1.0
+        suspicion_cache[player_id] += (probability - 0.5) * weight
+        
+        flagged = False
+        if suspicion_cache[player_id] > 20:
+            flagged = True
+            suspicion_cache[player_id] = 0.0  # Reset after flag
+
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content={
                 "probability": probability,
                 "ticks_received": len(ticks),
+                "flagged": flagged,
+                "suspicion_level": suspicion_cache[player_id],
             },
         )
 
@@ -195,6 +307,9 @@ def create_app() -> FastAPI:
 
         # Fit scaler on all data
         all_data_flat = np.array(all_sequences).reshape(-1, 8)
+        # Add dummy advanced features (7 zeros)
+        dummy_advanced = np.zeros((all_data_flat.shape[0], 7))
+        all_data_flat = np.concatenate([all_data_flat, dummy_advanced], axis=1)  # (n, 15)
         scaler = StandardScaler()
         scaler.fit(all_data_flat)
 
