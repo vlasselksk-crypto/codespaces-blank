@@ -1,0 +1,13 @@
+Произведены следующие изменения:
+
+1. Преобразован ru_data/dataset.csv в ru_data/dataset_converted.csv (добавлены kolонки gcd_error_yaw,pitch, переименованы + is_cheating).
+2. Модель переобучена на базе app/main.py с данными из ru_data/*.csv (window=40, step=20, batch_size=32, epochs=10), сохранены model.pth и scaler.pkl.
+3. Добавлен ru_data/mx_converted.csv на основе soft.csv, метки is_cheating вычислены по vl>0.
+4. Выполнены git commit/push для изменений: dataset_converted.csv, model.pth, scaler.pkl, mx_converted.csv.
+5. Последний коммит: 56770a4 (retrain with mx_converted and dataset_converted).
+6. Добавлены новые фичи в app/main.py: extract_advanced_features (variance_yaw, variance_pitch, hit_frequency, rotation_speed, aim_consistency, jitter, mouse_smoothing).
+7. Обновлена модель AimLSTM для 15 входов (8 старых + 7 новых фич).
+8. Добавлена гибридная система: правила в /v1/inference (быстрый бан при suspicion >80).
+9. Добавлено накопление подозрения: suspicion_cache по player_id, флаг при >20.
+10. Переобучена модель с 15 фичами, сохранены model.pth и scaler.pkl.
+11. Коммит 278a7b4: обновленный код и модель.
