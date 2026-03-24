@@ -12,6 +12,7 @@ import requests
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, status, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from typing import Optional
 
 import pandas as pd
 import joblib
@@ -167,13 +168,16 @@ def create_app() -> FastAPI:
     @app.post("/v1/inference")
     async def inference(
         request: Request,
-        player_id: str = Query(..., description="Player ID for suspicion tracking"),
+        player_id: Optional[str] = Query(None, description="Player ID for suspicion tracking"),
         hits: str = Query("[]", description="JSON list of hit history (last 100 ticks)"),
         x_api_key: str = Header(..., alias="X-API-Key"),
         api_key: str = Depends(get_api_key),
     ):
         if x_api_key != api_key:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid API key")
+
+        if player_id is None:
+            player_id = "unknown"
 
         try:
             hits_list = json.loads(hits)
