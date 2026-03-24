@@ -184,14 +184,39 @@ def create_app() -> FastAPI:
         except:
             hits_list = []
 
-        body = await request.body()
-        try:
-            ticks = parse_tickdata_sequence(body)
-        except Exception as exc:
-            logger.exception("Invalid FlatBuffers payload")
+        content_type = request.headers.get("content-type", "").lower()
+        ticks = None
+
+        if content_type in ["application/octet-stream", "application/x-flatbuffers"]:
+            # Parse as FlatBuffers
+            body = await request.body()
+            try:
+                ticks = parse_tickdata_sequence(body)
+            except Exception as exc:
+                logger.exception("Invalid FlatBuffers payload")
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="Invalid FlatBuffers payload",
+                )
+        elif content_type == "application/json":
+            # Parse as JSON
+            try:
+                body_json = await request.json()
+                ticks = body_json["ticks"]
+                if "hits" in body_json:
+                    hits_list = body_json["hits"]
+                if "player_id" in body_json:
+                    player_id = body_json["player_id"]
+            except Exception as exc:
+                logger.exception("Invalid JSON payload")
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="Invalid JSON payload",
+                )
+        else:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Invalid FlatBuffers payload",
+                status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+                detail="Unsupported content type. Use application/octet-stream for FlatBuffers or application/json for JSON",
             )
 
         if model is not None and scaler is not None:
