@@ -221,7 +221,19 @@ def create_app() -> FastAPI:
 
         if model is not None and scaler is not None:
             if ticks:
-                data = np.array(ticks)  # shape: (n_ticks, 8)
+                data = []
+                for tick in ticks:
+                    data.append([
+                        tick.get('delta_yaw', 0) if isinstance(tick, dict) else tick[0],
+                        tick.get('delta_pitch', 0) if isinstance(tick, dict) else tick[1],
+                        tick.get('accel_yaw', 0) if isinstance(tick, dict) else tick[2],
+                        tick.get('accel_pitch', 0) if isinstance(tick, dict) else tick[3],
+                        tick.get('jerk_yaw', 0) if isinstance(tick, dict) else tick[4],
+                        tick.get('jerk_pitch', 0) if isinstance(tick, dict) else tick[5],
+                        tick.get('gcd_error_yaw', 0) if isinstance(tick, dict) else tick[6],
+                        tick.get('gcd_error_pitch', 0) if isinstance(tick, dict) else tick[7]
+                    ])
+                data = np.array(data)
                 
                 # Extract advanced features
                 advanced_features = extract_advanced_features(ticks, hits_list)
