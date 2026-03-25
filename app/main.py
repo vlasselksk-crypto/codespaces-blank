@@ -73,20 +73,20 @@ class AimDataset(Dataset):
 
 
 def extract_advanced_features(ticks, hits):
-    # ticks: list of [delta_yaw, delta_pitch, accel_yaw, accel_pitch, jerk_yaw, jerk_pitch, gcd_error_yaw, gcd_error_pitch]
+    # ticks: list of dicts with keys: delta_yaw, delta_pitch, accel_yaw, accel_pitch, jerk_yaw, jerk_pitch, gcd_error_yaw, gcd_error_pitch
     
     # variance_yaw: дисперсия delta_yaw за последние 20 тиков
     if len(ticks) < 20:
         variance_yaw = 0.0
     else:
-        deltas_yaw = [t[0] for t in ticks[-20:]]
+        deltas_yaw = [t.get('delta_yaw', 0) for t in ticks[-20:]]
         variance_yaw = np.var(deltas_yaw)
     
     # variance_pitch
     if len(ticks) < 20:
         variance_pitch = 0.0
     else:
-        deltas_pitch = [t[1] for t in ticks[-20:]]
+        deltas_pitch = [t.get('delta_pitch', 0) for t in ticks[-20:]]
         variance_pitch = np.var(deltas_pitch)
     
     # hit_frequency: количество ударов за последние 2 секунды (40 тиков)
@@ -99,7 +99,7 @@ def extract_advanced_features(ticks, hits):
     if not ticks:
         rotation_speed = 0.0
     else:
-        rotation_speed = np.mean([abs(t[0]) + abs(t[1]) for t in ticks])
+        rotation_speed = np.mean([abs(t.get('delta_yaw', 0)) + abs(t.get('delta_pitch', 0)) for t in ticks])
     
     # aim_consistency: среднее отклонение от идеального попадания (заглушка 0.0)
     aim_consistency = 0.0
@@ -108,7 +108,7 @@ def extract_advanced_features(ticks, hits):
     if len(ticks) < 3:
         jitter = 0.0
     else:
-        deltas = [t[0] for t in ticks]
+        deltas = [t.get('delta_yaw', 0) for t in ticks]
         smoothed = np.convolve(deltas, np.ones(3)/3, mode='valid')
         jitter = np.mean([abs(d - s) for d, s in zip(deltas[1:-1], smoothed)])
     
@@ -116,7 +116,7 @@ def extract_advanced_features(ticks, hits):
     if len(ticks) < 2:
         mouse_smoothing = 0.0
     else:
-        deltas = [t[0] for t in ticks]
+        deltas = [t.get('delta_yaw', 0) for t in ticks]
         mouse_smoothing = np.corrcoef(deltas[:-1], deltas[1:])[0,1] if len(deltas) > 1 else 0.0
     
     return variance_yaw, variance_pitch, hit_frequency, rotation_speed, aim_consistency, jitter, mouse_smoothing
