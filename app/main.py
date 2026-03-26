@@ -43,7 +43,7 @@ scaler = None
 class AimLSTM(nn.Module):
     def __init__(self):
         super().__init__()
-        self.lstm1 = nn.LSTM(15, 128, batch_first=True)
+        self.lstm1 = nn.LSTM(8, 128, batch_first=True)
         self.dropout1 = nn.Dropout(0.3)
         self.lstm2 = nn.LSTM(128, 64, batch_first=True)
         self.dropout2 = nn.Dropout(0.3)
@@ -69,56 +69,6 @@ class AimDataset(Dataset):
         
     def __getitem__(self, idx):
         return self.sequences[idx], self.labels[idx]
-
-
-def extract_advanced_features(ticks, hits):
-    # ticks: list of dicts with keys: delta_yaw, delta_pitch, accel_yaw, accel_pitch, jerk_yaw, jerk_pitch, gcd_error_yaw, gcd_error_pitch
-    
-    # variance_yaw: дисперсия delta_yaw за последние 20 тиков
-    if len(ticks) < 20:
-        variance_yaw = 0.0
-    else:
-        deltas_yaw = [t.get('delta_yaw', 0) for t in ticks[-20:]]
-        variance_yaw = np.var(deltas_yaw)
-    
-    # variance_pitch
-    if len(ticks) < 20:
-        variance_pitch = 0.0
-    else:
-        deltas_pitch = [t.get('delta_pitch', 0) for t in ticks[-20:]]
-        variance_pitch = np.var(deltas_pitch)
-    
-    # hit_frequency: количество ударов за последние 2 секунды (40 тиков)
-    if len(hits) < 40:
-        hit_frequency = sum(hits)
-    else:
-        hit_frequency = sum(hits[-40:])
-    
-    # rotation_speed: среднее |delta_yaw| + |delta_pitch| за тик
-    if not ticks:
-        rotation_speed = 0.0
-    else:
-        rotation_speed = np.mean([abs(t.get('delta_yaw', 0)) + abs(t.get('delta_pitch', 0)) for t in ticks])
-    
-    # aim_consistency: среднее отклонение от идеального попадания (заглушка 0.0)
-    aim_consistency = 0.0
-    
-    # jitter: среднее отклонение от сглаженного движения
-    if len(ticks) < 3:
-        jitter = 0.0
-    else:
-        deltas = [t.get('delta_yaw', 0) for t in ticks]
-        smoothed = np.convolve(deltas, np.ones(3)/3, mode='valid')
-        jitter = np.mean([abs(d - s) for d, s in zip(deltas[1:-1], smoothed)])
-    
-    # mouse_smoothing: корреляция последовательных дельт
-    if len(ticks) < 2:
-        mouse_smoothing = 0.0
-    else:
-        deltas = [t.get('delta_yaw', 0) for t in ticks]
-        mouse_smoothing = np.corrcoef(deltas[:-1], deltas[1:])[0,1] if len(deltas) > 1 else 0.0
-    
-    return variance_yaw, variance_pitch, hit_frequency, rotation_speed, aim_consistency, jitter, mouse_smoothing
 
 
 def load_model():
@@ -234,18 +184,10 @@ def create_app() -> FastAPI:
                     ])
                 data = np.array(data)
                 
-                # Extract advanced features
-                advanced_features = extract_advanced_features(ticks, hits_list)
-                advanced_array = np.array(advanced_features).reshape(1, -1)  # (1, 7)
-                advanced_tiled = np.tile(advanced_array, (len(data), 1))  # (n_ticks, 7)
-                
-                # Concatenate features
-                data = np.concatenate([data, advanced_tiled], axis=1)  # (n_ticks, 15)
-                
-                # Normalize data
+                # Normalize only the 8 base features
                 data_normalized = scaler.transform(data)
                 # Convert to tensor, add batch dim
-                seq = torch.FloatTensor(data_normalized).unsqueeze(0)  # shape: (1, n_ticks, 15)
+                seq = torch.FloatTensor(data_normalized).unsqueeze(0)  # shape: (1, n_ticks, 8)
                 with torch.no_grad():
                     probability = model(seq).item()
             else:
@@ -307,11 +249,8 @@ def create_app() -> FastAPI:
         if not all_sequences:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No valid training sequences created")
 
-        # Fit scaler on all data
+        # Fit scaler on all data (8 base features)
         all_data_flat = np.array(all_sequences).reshape(-1, 8)
-        # Add dummy advanced features (7 zeros)
-        dummy_advanced = np.zeros((all_data_flat.shape[0], 7))
-        all_data_flat = np.concatenate([all_data_flat, dummy_advanced], axis=1)  # (n, 15)
         scaler = StandardScaler()
         scaler.fit(all_data_flat)
 
