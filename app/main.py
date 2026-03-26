@@ -38,7 +38,6 @@ logging.basicConfig(
 # Global model and scaler variables
 model = None
 scaler = None
-suspicion_cache = {}
 
 
 class AimLSTM(nn.Module):
@@ -254,49 +253,10 @@ def create_app() -> FastAPI:
         else:
             probability = 0.1
 
-        # Hybrid system: rule-based suspicion
-        suspicion = 0
-        if ticks:
-            rotation_speed = advanced_features[3]  # from extract_advanced_features
-            hit_frequency = advanced_features[2]
-            last_hit = hits_list and hits_list[-1] if hits_list else False
-            
-            # Rule 1: слишком быстрый поворот во время удара
-            if rotation_speed > 3000 and last_hit:
-                suspicion += 50
-            
-            # Rule 2: слишком частая атака
-            if hit_frequency > 18:
-                suspicion += 30
-            
-            # Если подозрение > 80 — мгновенный бан
-            if suspicion > 80:
-                return JSONResponse(
-                    status_code=status.HTTP_200_OK,
-                    content={
-                        "probability": 0.99,
-                        "reason": "rule_based",
-                        "ticks_received": len(ticks),
-                    },
-                )
-            
-            # Add rule suspicion to probability
-            probability += suspicion / 100.0
-            probability = min(probability, 0.99)
+        # Simple inference logic: probability comes from the model, flag if above threshold
+        flagged = probability > 0.9
 
-        # Suspicion accumulation
-        if player_id not in suspicion_cache:
-            suspicion_cache[player_id] = 0.0
-        
-        weight = 1.5 if hits_list and hits_list[-1] else 1.0
-        suspicion_cache[player_id] += (probability - 0.5) * weight
-        
-        logger.info(f"Player {player_id}: suspicion={suspicion_cache[player_id]:.1f}, prob={probability:.3f}")
-        
-        flagged = False
-        if suspicion_cache[player_id] > 40:
-            flagged = True
-            suspicion_cache[player_id] = 0.0  # Reset after flag
+        logger.info(f"Player {player_id}: prob={probability:.3f}, flagged={flagged}")
 
         return JSONResponse(
             status_code=status.HTTP_200_OK,
@@ -304,7 +264,6 @@ def create_app() -> FastAPI:
                 "probability": probability,
                 "ticks_received": len(ticks),
                 "flagged": flagged,
-                "suspicion_level": suspicion_cache[player_id],
             },
         )
 
