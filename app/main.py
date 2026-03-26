@@ -262,11 +262,11 @@ def create_app() -> FastAPI:
             last_hit = hits_list and hits_list[-1] if hits_list else False
             
             # Rule 1: слишком быстрый поворот во время удара
-            if rotation_speed > 2000 and last_hit:
+            if rotation_speed > 3000 and last_hit:
                 suspicion += 50
             
             # Rule 2: слишком частая атака
-            if hit_frequency > 12:
+            if hit_frequency > 18:
                 suspicion += 30
             
             # Если подозрение > 80 — мгновенный бан
@@ -288,11 +288,13 @@ def create_app() -> FastAPI:
         if player_id not in suspicion_cache:
             suspicion_cache[player_id] = 0.0
         
-        weight = 3.0 if hits_list and hits_list[-1] else 1.0
+        weight = 1.5 if hits_list and hits_list[-1] else 1.0
         suspicion_cache[player_id] += (probability - 0.5) * weight
         
+        logger.info(f"Player {player_id}: suspicion={suspicion_cache[player_id]:.1f}, prob={probability:.3f}")
+        
         flagged = False
-        if suspicion_cache[player_id] > 20:
+        if suspicion_cache[player_id] > 40:
             flagged = True
             suspicion_cache[player_id] = 0.0  # Reset after flag
 
