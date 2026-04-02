@@ -358,6 +358,10 @@ def create_app() -> FastAPI:
             "val_losses": val_losses
         }
 
+    @app.get("/health")
+    async def health_check():
+        return {"status": "ok", "model_loaded": model is not None}
+
     return app
 
 
