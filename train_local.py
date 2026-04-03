@@ -17,27 +17,37 @@ from app.main import AimLSTM, AimDataset
 csv_files = glob.glob("ru_data/*.csv")
 all_sequences = []
 all_labels = []
+skipped_files = []
 
 for file_path in csv_files:
-    df = pd.read_csv(file_path)
-    filename = os.path.basename(file_path).upper()
-    if "LEGIT" in filename:
-        label = 0
-    elif "CHEAT" in filename:
-        label = 1
-    else:
-        continue
-    
-    # Assume data starts from second column (first is is_cheating, but we use filename)
-    data = df.iloc[:, 1:].values  # shape: (n_ticks, 8)
-    
-    # Create sequences: window 40, step 20
-    window_size = 40
-    step = 20
-    for i in range(0, len(data) - window_size + 1, step):
-        seq = data[i:i+window_size]
-        all_sequences.append(seq)
-        all_labels.append(label)
+    try:
+        df = pd.read_csv(file_path, on_bad_lines='skip')
+        filename = os.path.basename(file_path).upper()
+        if "LEGIT" in filename:
+            label = 0
+        elif "CHEAT" in filename:
+            label = 1
+        else:
+            continue
+        
+        # Assume data starts from second column (first is is_cheating, but we use filename)
+        data = df.iloc[:, 1:].values  # shape: (n_ticks, 8)
+        
+        # Create sequences: window 40, step 20
+        window_size = 40
+        step = 20
+        for i in range(0, len(data) - window_size + 1, step):
+            seq = data[i:i+window_size]
+            all_sequences.append(seq)
+            all_labels.append(label)
+        
+        print(f"Loaded: {os.path.basename(file_path)}")
+    except Exception as e:
+        print(f"Error loading {file_path}: {e}")
+        skipped_files.append(file_path)
+
+print(f"\nTotal sequences created: {len(all_sequences)}")
+print(f"Skipped files: {len(skipped_files)}")
 
 if not all_sequences:
     print("No sequences created")

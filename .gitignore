@@ -1,5 +1,13 @@
 /slothac_api.zip
 
+# Large data files
+dataset*.csv
+*.zip
+*.tar
+*.tar.gz
+tmp.zip
+ziJ06VFm
+
 # Python bytecode
 __pycache__/
 *.py[cod]
