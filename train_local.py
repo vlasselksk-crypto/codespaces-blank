@@ -33,6 +33,11 @@ for file_path in csv_files:
         # Assume data starts from second column (first is is_cheating, but we use filename)
         data = df.iloc[:, 1:].values  # shape: (n_ticks, 8)
         
+        # Skip if not enough data for sequences
+        if len(data) < window_size:
+            print(f"Skipped {os.path.basename(file_path)}: not enough data ({len(data)} < {window_size})")
+            continue
+        
         # Create sequences: window 40, step 20
         window_size = 40
         step = 20
