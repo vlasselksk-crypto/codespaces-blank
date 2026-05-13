@@ -12,15 +12,21 @@ def parse_tickdata_sequence(body: bytes) -> list[list[float]]:
     Returns a list of tick rows, each with 8 float values.
     """
 
+    # ИСПРАВЛЕНО: убран лишний TickDataSequence. перед GetRootAsTickDataSequence
     seq = TickDataSequence.TickDataSequence.GetRootAsTickDataSequence(body, 0)
     length = seq.TicksLength()
     ticks: list[list[float]] = []
+    
     for i in range(length):
-        offset = seq.Ticks(i)
-        if not offset:
+        # ИСПРАВЛЕНО: Tick(i) возвращает смещение (offset), которое нужно передать в Init
+        tick_offset = seq.Ticks(i)
+        if tick_offset is None:
             continue
+            
         td = TickData.TickData()
-        td.Init(body, offset)
+        # ИСПРАВЛЕНО: передаём исходный буфер и смещение
+        td.Init(body, tick_offset)
+        
         ticks.append([
             td.F0(),
             td.F1(),
@@ -38,7 +44,7 @@ def parse_tickdata_sequence(body: bytes) -> list[list[float]]:
 def build_tickdata_sequence(rows: list[list[float]]) -> bytes:
     """Build a TickDataSequence FlatBuffers payload for tests or clients."""
 
-    builder = flatbuffers.Builder(0)
+    builder = flatbuffers.Builder(1024)  # Увеличен начальный буфер
 
     # build each TickData table and store offsets
     offsets = []
