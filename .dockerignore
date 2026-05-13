@@ -1,0 +1,8 @@
+ru_data
+tests
+*.pyc
+__pycache__
+.git
+.venv
+model.pth
+scaler.pkl
