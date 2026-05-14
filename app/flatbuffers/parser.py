@@ -12,20 +12,18 @@ def parse_tickdata_sequence(body: bytes) -> list[list[float]]:
     Returns a list of tick rows, each with 8 float values.
     """
 
-    # ИСПРАВЛЕНО: убран лишний TickDataSequence. перед GetRootAsTickDataSequence
     seq = TickDataSequence.TickDataSequence.GetRootAsTickDataSequence(body, 0)
     length = seq.TicksLength()
     ticks: list[list[float]] = []
     
     for i in range(length):
-        # ИСПРАВЛЕНО: Tick(i) возвращает смещение (offset), которое нужно передать в Init
         tick_offset = seq.Ticks(i)
         if tick_offset is None:
             continue
-            
+        
         td = TickData.TickData()
-        # ИСПРАВЛЕНО: передаём исходный буфер и смещение
-        td.Init(body, tick_offset)
+        # Исправлено: используем абсолютный offset для Init
+        td.Init(body, seq._tab.Pos + tick_offset)
         
         ticks.append([
             td.F0(),
