@@ -17,13 +17,9 @@ def parse_tickdata_sequence(body: bytes) -> list[list[float]]:
     ticks: list[list[float]] = []
     
     for i in range(length):
-        tick_offset = seq.Ticks(i)
-        if tick_offset is None:
+        td = seq.Ticks(i)
+        if td is None:
             continue
-        
-        td = TickData.TickData()
-        # Исправлено: используем абсолютный offset для Init
-        td.Init(body, seq._tab.Pos + tick_offset)
         
         ticks.append([
             td.F0(),
